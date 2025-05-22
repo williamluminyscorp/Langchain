@@ -77,7 +77,6 @@ class EmbeddingService:
         logger.info("✅ OpenAI客户端已配置")
     
     def search_similar_texts(self, query_vec: List[float], collection_name: str, top_k: int = 3):
-        """在Qdrant中搜索相似文本"""
         try:
             results = self.qdrant_client.search(
                 collection_name=collection_name,
@@ -86,7 +85,15 @@ class EmbeddingService:
                 with_payload=True,
                 with_vectors=False,
             )
-            return [hit.payload["text"] for hit in results]
+            return [
+                {
+                    "id": hit.id,
+                    "score": hit.score,
+                    "text": hit.payload["text"],
+                    "payload": hit.payload  # 完整payload
+                }
+                for hit in results
+            ]
         except Exception as e:
             logger.error(f"搜索失败: {e}")
             raise HTTPException(status_code=500, detail=f"搜索失败: {str(e)}")
@@ -152,6 +159,29 @@ class EmbeddingService:
         except Exception as e:
             logger.error(f"Storage operation failed: {e}")
             return False
+        
+    def generate_answer(self, query: str, context: str, model: str = "gpt-3.5-turbo", temperature: float = 0.3):
+        """使用GPT生成回答"""
+        prompt = f"""你是一个专业的公司知识助手，请严格根据以下公司手册内容回答问题：
+        
+        【相关手册内容】
+        {context}
+
+        【用户问题】
+        {query}
+
+        要求：
+        1. 回答必须完全基于提供的手册内容
+        2. 如果内容中没有明确答案，请回答"根据手册内容，没有找到相关信息"
+        3. 保持回答专业、简洁
+        """
+
+        response = self.openai_client.chat.completions.create(
+            model=model,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=temperature,
+        )
+        return response.choices[0].message.content
     
 
 class CreateCollectionRequest(BaseModel):
